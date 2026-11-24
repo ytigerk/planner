@@ -246,7 +246,7 @@
       <div class="week"><div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div></div>
       <div class="grid" id="grid"></div>
     </div>
-    <div class="hint">할 일을 한 만큼 칸이 아래부터 칠해져요 · 빗금은 쉬는 날<br>날짜를 누르면 그날 할 일로 이동 · 좌우로 밀어 달 이동</div>
+    <div class="hint">할 일을 한 만큼 칸이 아래부터 칠해져요 · 빗금은 쉬는 날<br>날짜를 누르면 그날 할 일로 이동 · 좌우로 밀어 탭 이동</div>
     <div class="sec-head">
       <div class="sec-title">쉬는 기간</div>
       <button class="sec-add" id="addBreak">+ 추가</button>
@@ -271,7 +271,7 @@
       </div>
     </header>
     <div id="dayBody"></div>
-    <div class="hint">좌우로 밀어 날짜 이동</div>
+    <div class="hint">좌우로 밀어 탭 이동</div>
   </div>
 
   <!-- 4. 설정 -->
@@ -549,7 +549,6 @@ function moveMonth(diff){
 document.getElementById('prevMonth').onclick = () => moveMonth(-1);
 document.getElementById('nextMonth').onclick = () => moveMonth(1);
 document.getElementById('thisMonth').onclick = () => { const t=new Date(); viewY=t.getFullYear(); viewM=t.getMonth(); renderCal(); };
-onSwipe(document.getElementById('cal'), dir => moveMonth(dir));
 
 /* 좌우로 밀기 */
 function onSwipe(el, fn){
@@ -866,7 +865,6 @@ function moveDay(n){ dayKey = addDays(dayKey, n); renderDay(); }
 document.getElementById('prevDay').onclick = () => moveDay(-1);
 document.getElementById('nextDay').onclick = () => moveDay(1);
 document.getElementById('today').onclick = () => { dayKey = todayKey(); renderDay(); };
-onSwipe(document.getElementById('viewDay'), dir => moveDay(dir));
 
 /* ======================================================================
    탭 전환
@@ -898,6 +896,15 @@ document.getElementById('tabDay').onclick = () => { dayKey = todayKey(); showTab
 document.getElementById('tabSet').onclick = () => showTab('set');
 document.getElementById('addBtn').onclick = () => openTaskSheet(null);
 function renderAll(){ showTab(curTab); }
+/* 화면 어디서든 좌우로 밀면 옆 탭으로 (아래 창이 열려 있을 땐 안 함) */
+const TAB_ORDER = ['cal','tasks','day','set'];
+onSwipe(document.body, dir => {
+  if(overlay.classList.contains('on')) return;
+  const next = TAB_ORDER[TAB_ORDER.indexOf(curTab) + dir];
+  if(!next) return;
+  if(next === 'day') dayKey = todayKey();   // 탭 버튼과 똑같이 오늘로 열기
+  showTab(next);
+});
 
 /* ---------- 아래 창 열고 닫기 ---------- */
 const importSheet = document.getElementById('importSheet');
