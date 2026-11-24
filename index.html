@@ -70,6 +70,37 @@
   .day.sun .d{color:var(--sun)} .day.sat .d{color:var(--sat)}
   .day.full .d{color:var(--fill-on,#fff)}
   .day.today{box-shadow:inset 0 0 0 2px var(--ink)}
+  /* 쉬는 날: 옅은 회색 빗금 */
+  .day.rest,.hatch{background:repeating-linear-gradient(-45deg,#e2e0da 0 3px,#f4f3ef 3px 7px)}
+  .day.rest .d{opacity:.6}
+
+  /* 쉬는 기간 */
+  .sec-head{display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin:1.6rem .3rem .6rem}
+  .sec-title{font-size:1.05rem;font-weight:700}
+  .sec-add{min-height:2.4rem;padding:0 .9rem;border-radius:.75rem;border:1px solid var(--line);background:var(--card);
+    font-size:.875rem;font-weight:700;white-space:nowrap}
+  .task .hatch{flex:none;width:2.2rem;height:2.2rem;border-radius:.6rem}
+  .task.past{opacity:.55}
+  .badge-now{display:inline-block;font-size:.7rem;font-weight:700;color:var(--fill-ink);background:var(--empty);
+    border-radius:99px;padding:.1rem .45rem;margin-left:.3rem;vertical-align:.1em}
+  .more{display:block;margin:.4rem auto 0;min-height:2.4rem;padding:0 1rem;border:0;background:transparent;
+    color:var(--sub);font-size:.8rem;font-weight:600}
+  .list-empty{background:var(--card);border-radius:1rem;padding:1rem;text-align:center;color:var(--sub);font-size:.85rem;line-height:1.5}
+  .rest-card{display:flex;align-items:center;gap:.9rem}
+  .rest-card .hatch{flex:none;width:3rem;height:3rem;border-radius:.8rem}
+  .rest-card .big{font-size:1.15rem;font-weight:800}
+  .rest-card .sm{font-size:.8rem;color:var(--sub);margin-top:.2rem;line-height:1.45}
+  .rest-note{margin-top:.6rem;display:flex;align-items:center;gap:.6rem;padding:.7rem 1rem;border-radius:1rem;
+    background:var(--card);font-size:.8rem;color:var(--sub);line-height:1.45}
+  .rest-note .hatch{flex:none;width:1.4rem;height:1.4rem;border-radius:.4rem}
+  .dates{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
+  .dates .input{flex:1 1 8.5rem;min-width:0}
+  .dates span{color:var(--sub)}
+  .pick{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.6rem}
+  .pick button{min-height:2.4rem;padding:0 .9rem;border-radius:99px;border:1px solid var(--line);background:var(--card);
+    font-size:.9rem;font-weight:600;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+  .pick button.on{background:var(--fill);border-color:var(--fill);color:var(--fill-on,#fff)}
+  .pick .none{font-size:.8rem;color:var(--sub)}
 
   /* 할 일 목록 */
   .add-btn{width:100%;min-height:3.1rem;border-radius:.9rem;border:0;background:var(--ink);color:#fff;
@@ -209,7 +240,12 @@
       <div class="week"><div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div></div>
       <div class="grid" id="grid"></div>
     </div>
-    <div class="hint">할 일을 한 만큼 칸이 아래부터 칠해져요<br>날짜를 누르면 그날 할 일로 이동 · 좌우로 밀어 달 이동</div>
+    <div class="hint">할 일을 한 만큼 칸이 아래부터 칠해져요 · 빗금은 쉬는 날<br>날짜를 누르면 그날 할 일로 이동 · 좌우로 밀어 달 이동</div>
+    <div class="sec-head">
+      <div class="sec-title">쉬는 기간</div>
+      <button class="sec-add" id="addBreak">+ 추가</button>
+    </div>
+    <div class="list" id="breakList"></div>
   </div>
 
   <!-- 2. 할 일 -->
@@ -311,6 +347,39 @@
   </div>
 </section>
 
+<!-- 쉬는 기간 추가/수정 창 -->
+<section class="sheet" id="breakSheet" aria-hidden="true">
+  <div class="grab"></div>
+  <div class="sheet-head">
+    <div class="sheet-title" id="bTitle">쉬는 기간 추가</div>
+    <button class="btn-icon" data-close aria-label="닫기">✕</button>
+  </div>
+  <div class="field">
+    <div class="label">이름</div>
+    <input class="input" id="bName" maxlength="30" placeholder="예: 제주 여행, 설 연휴" autocomplete="off">
+  </div>
+  <div class="field">
+    <div class="label">기간</div>
+    <div class="dates">
+      <input class="input" type="date" id="bStart" aria-label="시작일"><span>~</span>
+      <input class="input" type="date" id="bEnd" aria-label="종료일">
+    </div>
+  </div>
+  <div class="field">
+    <div class="label">쉬는 할 일</div>
+    <div class="seg">
+      <button id="bAll" class="on">전부 쉬기</button>
+      <button id="bSome">골라서 쉬기</button>
+    </div>
+    <div class="pick" id="bPick" hidden></div>
+  </div>
+  <div class="preview" id="bPreview"></div>
+  <div class="actions">
+    <button class="ghost" id="bDel" hidden>삭제</button>
+    <button class="primary" id="bSave">저장</button>
+  </div>
+</section>
+
 <!-- 백업 불러오기 창 -->
 <section class="sheet" id="importSheet" aria-hidden="true">
   <div class="grab"></div>
@@ -336,15 +405,16 @@
      tasks:  [{ id, name, type:'week'|'cycle', days:[0~6], on, off, start:'YYYY-MM-DD', end:'YYYY-MM-DD'|null, updated }]
              → 날짜마다 복사하지 않고 "규칙"만 저장. end가 있으면 그날부터 안 보임(삭제)
      checks: { 'YYYY-MM-DD': { 할일id: true } }
+     breaks: [{ id, name, start, end, all:true|false, tasks:[할일id], updated }]   ← 쉬는 기간
    ====================================================================== */
 const STORE_KEY = 'planner.v1';
 const TAB_KEY = 'planner.tab';
 let memoryStore = null;
-function emptyData(){ return { tasks: [], checks: {} }; }
+function emptyData(){ return { tasks: [], checks: {}, breaks: [] }; }
 function loadAll(){
   try{
     const d = JSON.parse(localStorage.getItem(STORE_KEY));
-    return (d && Array.isArray(d.tasks)) ? { tasks: d.tasks, checks: d.checks || {} } : emptyData();
+    return (d && Array.isArray(d.tasks)) ? { tasks: d.tasks, checks: d.checks || {}, breaks: Array.isArray(d.breaks) ? d.breaks : [] } : emptyData();
   }catch(e){ return memoryStore || emptyData(); }
 }
 function saveAll(){
@@ -375,7 +445,16 @@ function isDue(t, k){
   const cyc = t.on + t.off;
   return daysBetween(t.start, k) % cyc < t.on;
 }
-const tasksFor = k => data.tasks.filter(t => isDue(t, k));
+/* 쉬는 기간: 그 날짜를 덮는 기간 중 이 할 일을 쉬게 하는 것 */
+const breaksOn = k => data.breaks.filter(b => b.start <= k && k <= b.end);
+const offBy = (t, k) => breaksOn(k).find(b => b.all || b.tasks.includes(t.id));
+const dueFor = k => data.tasks.filter(t => isDue(t, k));             // 원래 해당하는 할 일
+const tasksFor = k => dueFor(k).filter(t => !offBy(t, k));           // 쉬는 것 빼고 실제로 할 일
+function isRestDay(k){
+  if(breaksOn(k).some(b => b.all)) return true;
+  const due = dueFor(k);
+  return due.length > 0 && due.every(t => offBy(t, k));
+}
 const isChecked = (k, id) => !!(data.checks[k] && data.checks[k][id]);
 function progressOf(k){
   const list = tasksFor(k);
@@ -415,11 +494,14 @@ function renderCal(){
     const el = document.createElement('button');
     el.className = 'day' + (dow===0?' sun':'') + (dow===6?' sat':'') + (key===tk?' today':'');
     let pct = 0;
-    if(!p) el.classList.add('free');
+    const rest = isRestDay(key);
+    if(rest) el.classList.add('rest');
+    else if(!p) el.classList.add('free');
     else{ mDone += p.done; mTotal += p.total; pct = Math.round(p.done / p.total * 100); }
+    if(rest) pct = 0;
     if(pct === 100) el.classList.add('full');
     el.innerHTML = `<span class="lv" style="height:${pct}%"></span><span class="d">${d}</span>`;
-    el.setAttribute('aria-label', `${viewM+1}월 ${d}일` + (p ? `, ${p.total}개 중 ${p.done}개 완료` : ', 할 일 없음'));
+    el.setAttribute('aria-label', `${viewM+1}월 ${d}일` + (rest ? ', 쉬는 날' : p ? `, ${p.total}개 중 ${p.done}개 완료` : ', 할 일 없음'));
     el.onclick = () => openDay(key);
     grid.appendChild(el);
   }
@@ -553,6 +635,98 @@ delBtn.onclick = () => {
 };
 
 /* ======================================================================
+   1-2. 쉬는 기간 (캘린더 탭 아래)
+   ====================================================================== */
+let showPast = false;
+function rangeText(b){
+  if(b.start === b.end) return fmtMDW(b.start);
+  return `${fmtMD(b.start)} ~ ${fmtMD(b.end)} · ${daysBetween(b.start, b.end) + 1}일`;
+}
+function targetText(b){
+  if(b.all) return '모든 할 일';
+  const names = data.tasks.filter(t => b.tasks.includes(t.id)).map(t => t.name);
+  return names.length ? names.join(', ') : '고른 할 일 없음';
+}
+function renderBreaks(){
+  const tk = todayKey(), box = document.getElementById('breakList');
+  const cur = data.breaks.filter(b => b.end >= tk).sort((a,b) => a.start < b.start ? -1 : 1);
+  const past = data.breaks.filter(b => b.end < tk).sort((a,b) => a.start > b.start ? -1 : 1);
+  box.innerHTML = '';
+  if(!cur.length) box.innerHTML = `<div class="list-empty">여행이나 연휴처럼 쉬는 날을 등록하면<br>그 기간은 캘린더에 빗금으로 표시되고 진행률에서 빠져요</div>`;
+  const item = (b, isPast) => {
+    const el = document.createElement('button');
+    el.className = 'task' + (isPast ? ' past' : '');
+    const now = !isPast && b.start <= tk ? '<span class="badge-now">쉬는 중</span>' : '';
+    el.innerHTML = `<span class="hatch"></span><div class="tx"><div class="nm">${escapeHtml(b.name)}${now}</div>
+      <div class="rl">${rangeText(b)}<br>${escapeHtml(targetText(b))}</div></div><span class="ar">›</span>`;
+    el.onclick = () => openBreakSheet(b);
+    box.appendChild(el);
+  };
+  cur.forEach(b => item(b, false));
+  if(past.length){
+    if(showPast) past.forEach(b => item(b, true));
+    const m = document.createElement('button');
+    m.className = 'more'; m.textContent = showPast ? '지난 기간 숨기기' : `지난 기간 ${past.length}개 보기`;
+    m.onclick = () => { showPast = !showPast; renderBreaks(); };
+    box.appendChild(m);
+  }
+}
+const breakSheet = document.getElementById('breakSheet');
+const bName = document.getElementById('bName'), bStart = document.getElementById('bStart'), bEnd = document.getElementById('bEnd');
+let bform = null;
+function openBreakSheet(b){
+  const tk = todayKey();
+  bform = b ? { ...b, tasks:[...b.tasks] } : { id:null, name:'', start:tk, end:tk, all:true, tasks:[] };
+  bName.value = bform.name; bStart.value = bform.start; bEnd.value = bform.end;
+  document.getElementById('bTitle').textContent = b ? '쉬는 기간 수정' : '쉬는 기간 추가';
+  document.getElementById('bDel').hidden = !b;
+  resetBDel(); paintBreak(); openSheet(breakSheet);
+}
+function paintBreak(){
+  document.getElementById('bAll').classList.toggle('on', bform.all);
+  document.getElementById('bSome').classList.toggle('on', !bform.all);
+  const pick = document.getElementById('bPick');
+  pick.hidden = bform.all;
+  const active = data.tasks.filter(t => !t.end);
+  pick.innerHTML = active.length ? '' : '<span class="none">아직 할 일이 없어요</span>';
+  active.forEach(t => {
+    const c = document.createElement('button');
+    c.textContent = t.name; c.classList.toggle('on', bform.tasks.includes(t.id));
+    c.onclick = () => { const s = new Set(bform.tasks); s.has(t.id) ? s.delete(t.id) : s.add(t.id); bform.tasks = [...s]; paintBreak(); };
+    pick.appendChild(c);
+  });
+  let a = bform.start, z = bform.end; if(a > z) [a, z] = [z, a];
+  document.getElementById('bPreview').innerHTML = `<b>${rangeText({start:a, end:z})}</b> 동안 ${bform.all ? '모든 할 일을' : '고른 할 일을'} 쉬어요`;
+}
+document.getElementById('bAll').onclick = () => { bform.all = true; paintBreak(); };
+document.getElementById('bSome').onclick = () => { bform.all = false; paintBreak(); };
+bStart.onchange = () => { if(bStart.value){ bform.start = bStart.value; if(bform.end < bform.start){ bform.end = bform.start; bEnd.value = bform.end; } } paintBreak(); };
+bEnd.onchange = () => { if(bEnd.value) bform.end = bEnd.value; paintBreak(); };
+document.getElementById('addBreak').onclick = () => openBreakSheet(null);
+document.getElementById('bSave').onclick = () => {
+  if(!bform.all && !bform.tasks.length){ toast('쉴 할 일을 골라주세요'); return; }
+  let a = bform.start, z = bform.end; if(a > z) [a, z] = [z, a];
+  const b = { id: bform.id || ('b' + Date.now().toString(36) + Math.random().toString(36).slice(2,6)),
+    name: bName.value.trim() || '쉬는 날', start:a, end:z, all:bform.all, tasks: bform.all ? [] : [...bform.tasks],
+    updated: new Date().toISOString() };
+  const i = data.breaks.findIndex(x => x.id === b.id);
+  if(i >= 0) data.breaks[i] = b; else data.breaks.push(b);
+  saveAll(); renderAll(); closeSheet(); toast(i >= 0 ? '수정했어요' : '쉬는 기간을 추가했어요');
+};
+const bDel = document.getElementById('bDel');
+let bDelArmed = false;
+function resetBDel(){ bDelArmed = false; bDel.textContent = '삭제'; bDel.classList.remove('armed'); }
+bDel.onclick = () => {
+  if(!bDelArmed){
+    bDelArmed = true; bDel.textContent = '한 번 더 누르면 삭제'; bDel.classList.add('armed');
+    clearTimeout(resetBDel._t); resetBDel._t = setTimeout(resetBDel, 3000);
+    return;
+  }
+  data.breaks = data.breaks.filter(x => x.id !== bform.id);
+  saveAll(); renderAll(); closeSheet(); toast('삭제했어요');
+};
+
+/* ======================================================================
    3. 하루
    ====================================================================== */
 let dayKey = todayKey();
@@ -561,6 +735,15 @@ function renderDay(){
   document.getElementById('dayTitle').textContent = fmtMDW(dayKey);
   const body = document.getElementById('dayBody');
   const list = tasksFor(dayKey);
+  const offList = dueFor(dayKey).filter(t => offBy(t, dayKey));
+  const restNames = [...new Set(breaksOn(dayKey).filter(b => b.all || offList.some(t => b.tasks.includes(t.id))).map(b => b.name))];
+  if(!list.length && (offList.length || breaksOn(dayKey).some(b => b.all))){
+    body.innerHTML = `<div class="card rest-card"><span class="hatch"></span><div>
+      <div class="big">쉬는 날 🌴</div>
+      <div class="sm">${escapeHtml(restNames.join(', '))} · ${breaksOn(dayKey).some(b => b.all) ? '모든 할 일을 쉬어요'
+        : offList.map(t => escapeHtml(t.name)).join(', ') + ' 쉬는 중'}</div></div></div>`;
+    return;
+  }
   if(!list.length){
     const has = data.tasks.some(t => !t.end);
     body.innerHTML = `<div class="card empty">${has ? '이날은 할 일이 없어요 🌿' : '아직 할 일이 없어요.<br>할 일 탭에서 먼저 추가해 주세요.'}
@@ -586,6 +769,10 @@ function renderDay(){
     };
     box.appendChild(lab);
   });
+  if(offList.length){
+    body.insertAdjacentHTML('beforeend', `<div class="rest-note"><span class="hatch"></span>
+      <span>${offList.map(t => escapeHtml(t.name)).join(', ')} 쉬는 중 · ${escapeHtml(restNames.join(', '))}</span></div>`);
+  }
 }
 function updateProgress(){   // 체크할 때 목록은 그대로 두고 위쪽 진행률만 갱신
   const list = tasksFor(dayKey), done = list.filter(t => isChecked(dayKey, t.id)).length;
@@ -616,7 +803,7 @@ function showTab(name){
   if(name === 'cal'){
     const d = parseKey(dayKey);   // 하루 탭에서 보던 달로 맞춰주기
     if(document.getElementById(TABS.day[0]).dataset.seen){ viewY = d.getFullYear(); viewM = d.getMonth(); }
-    renderCal();
+    renderCal(); renderBreaks();
   }
   if(name === 'tasks') renderTasks();
   if(name === 'day'){ document.getElementById(TABS.day[0]).dataset.seen = 1; renderDay(); }
@@ -635,8 +822,8 @@ function renderAll(){ showTab(curTab); }
 const importSheet = document.getElementById('importSheet');
 function openSheet(s){ s.classList.add('on'); overlay.classList.add('on'); s.setAttribute('aria-hidden','false'); }
 function closeSheet(){
-  [taskSheet, importSheet].forEach(s => { s.classList.remove('on'); s.setAttribute('aria-hidden','true'); });
-  overlay.classList.remove('on'); fName.blur();
+  [taskSheet, importSheet, breakSheet].forEach(s => { s.classList.remove('on'); s.setAttribute('aria-hidden','true'); });
+  overlay.classList.remove('on'); fName.blur(); bName.blur();
 }
 overlay.onclick = closeSheet;
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = closeSheet);
@@ -650,12 +837,13 @@ function toast(msg){
    4. 설정: 백업 내보내기 / 불러오기
    ====================================================================== */
 function updateSettings(){
-  const n = data.tasks.filter(t => !t.end).length, c = Object.keys(data.checks).length;
-  document.getElementById('setCount').textContent = (n || c) ? `할 일 ${n}개 · 체크한 날 ${c}일이 저장되어 있어요` : '아직 저장된 기록이 없어요';
+  const n = data.tasks.filter(t => !t.end).length, c = Object.keys(data.checks).length, r = data.breaks.length;
+  document.getElementById('setCount').textContent = (n || c || r)
+    ? `할 일 ${n}개 · 체크한 날 ${c}일 · 쉬는 기간 ${r}개가 저장되어 있어요` : '아직 저장된 기록이 없어요';
 }
 document.getElementById('exportBtn').onclick = async () => {
   if(!data.tasks.length){ toast('아직 백업할 기록이 없어요'); return; }
-  const payload = { app:'planner', version:1, exported:new Date().toISOString(), tasks:data.tasks, checks:data.checks };
+  const payload = { app:'planner', version:1, exported:new Date().toISOString(), tasks:data.tasks, checks:data.checks, breaks:data.breaks };
   const name = `planner-backup-${todayKey()}.json`;
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
   try{   // 1) 휴대폰 공유창
@@ -681,7 +869,7 @@ fileInput.onchange = async () => {
   fileInput.value = '';
   if(!pending || !pending.tasks.length){ toast('계획표 백업 파일이 아니에요'); return; }
   document.getElementById('importInfo').textContent =
-    `할 일 ${pending.tasks.filter(t=>!t.end).length}개 · 체크한 날 ${Object.keys(pending.checks).length}일`;
+    `할 일 ${pending.tasks.filter(t=>!t.end).length}개 · 체크한 날 ${Object.keys(pending.checks).length}일 · 쉬는 기간 ${pending.breaks.length}개`;
   resetReplace(); openSheet(importSheet);
 };
 function cleanData(d){
@@ -700,7 +888,11 @@ function cleanData(d){
     const o = {}; for(const id of Object.keys(v)) if(v[id] === true && ids.has(id)) o[id] = true;
     if(Object.keys(o).length) checks[k] = o;
   }
-  return { tasks, checks };
+  const breaks = (Array.isArray(d.breaks) ? d.breaks : []).filter(b => b && typeof b.id === 'string' && isK(b.start) && isK(b.end))
+    .map(b => ({ id:b.id, name: typeof b.name === 'string' && b.name.trim() ? b.name.slice(0,30) : '쉬는 날',
+      start: b.start <= b.end ? b.start : b.end, end: b.start <= b.end ? b.end : b.start, all: b.all !== false,
+      tasks: Array.isArray(b.tasks) ? b.tasks.filter(id => ids.has(id)) : [], updated: typeof b.updated === 'string' ? b.updated : '' }));
+  return { tasks, checks, breaks };
 }
 document.getElementById('mergeBtn').onclick = () => {
   let n = 0;
@@ -712,6 +904,11 @@ document.getElementById('mergeBtn').onclick = () => {
   for(const [k,v] of Object.entries(pending.checks)){
     const c = data.checks[k] || (data.checks[k] = {});
     for(const id of Object.keys(v)){ if(!c[id]){ c[id] = true; n++; } }
+  }
+  for(const b of pending.breaks){
+    const i = data.breaks.findIndex(x => x.id === b.id);
+    if(i < 0){ data.breaks.push(b); n++; }
+    else if((b.updated||'') > (data.breaks[i].updated||'')){ data.breaks[i] = b; n++; }
   }
   saveAll(); renderAll(); closeSheet();
   toast(n ? '백업을 합쳤어요' : '새로 추가할 내용이 없었어요');
@@ -729,7 +926,7 @@ replaceBtn.onclick = () => {
     clearTimeout(resetReplace._t); resetReplace._t = setTimeout(resetReplace, 4000);
     return;
   }
-  data = { tasks: pending.tasks, checks: pending.checks };
+  data = { tasks: pending.tasks, checks: pending.checks, breaks: pending.breaks };
   saveAll(); renderAll(); closeSheet(); toast('백업으로 바꿨어요');
 };
 
