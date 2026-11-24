@@ -101,6 +101,12 @@
     font-size:.9rem;font-weight:600;max-width:100%;overflow:hidden;text-overflow:ellipsis}
   .pick button.on{background:var(--fill);border-color:var(--fill);color:var(--fill-on,#fff)}
   .pick .none{font-size:.8rem;color:var(--sub)}
+  .group-title{font-size:.8rem;font-weight:700;color:var(--sub);margin:.4rem .4rem 0}
+  .wk{display:grid;grid-template-columns:repeat(auto-fit,minmax(4rem,1fr));gap:.3rem}
+  .wk button{min-width:0;min-height:2.6rem;border-radius:.75rem;border:1px solid var(--line);background:var(--card);
+    font-size:.875rem;font-weight:700;padding:0 .1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wk button.on{background:var(--fill);border-color:var(--fill);color:var(--fill-on,#fff)}
+  .sublabel{font-size:.75rem;color:var(--sub);margin:.7rem .2rem .4rem}
 
   /* 할 일 목록 */
   .add-btn{width:100%;min-height:3.1rem;border-radius:.9rem;border:0;background:var(--ink);color:#fff;
@@ -359,6 +365,21 @@
     <input class="input" id="bName" maxlength="30" placeholder="예: 제주 여행, 설 연휴" autocomplete="off">
   </div>
   <div class="field">
+    <div class="label">언제 쉬나요?</div>
+    <div class="seg">
+      <button id="bKindDate" class="on">날짜 지정</button>
+      <button id="bKindMonth">매월 반복</button>
+    </div>
+  </div>
+  <div class="field" id="bMonthBox" hidden>
+    <div class="sublabel">몇째 주 (여러 개 고를 수 있어요)</div>
+    <div class="wk" id="bWeeks"></div>
+    <div class="sublabel">요일</div>
+    <div class="chips" id="bDow"></div>
+    <div class="sublabel">시작일</div>
+    <input class="input" type="date" id="bFrom">
+  </div>
+  <div class="field" id="bDateBox">
     <div class="label">기간</div>
     <div class="dates">
       <input class="input" type="date" id="bStart" aria-label="시작일"><span>~</span>
@@ -405,7 +426,8 @@
      tasks:  [{ id, name, type:'week'|'cycle', days:[0~6], on, off, start:'YYYY-MM-DD', end:'YYYY-MM-DD'|null, updated }]
              → 날짜마다 복사하지 않고 "규칙"만 저장. end가 있으면 그날부터 안 보임(삭제)
      checks: { 'YYYY-MM-DD': { 할일id: true } }
-     breaks: [{ id, name, start, end, all:true|false, tasks:[할일id], updated }]   ← 쉬는 기간
+     breaks: [{ id, name, kind:'date'|'monthly', start, end, weeks:[1~4, 5=마지막], dow:0~6, until, all:true|false, tasks:[할일id], updated }]
+             ← 쉬는 기간. date는 start~end, monthly는 start부터 매월 n째 주 요일 (until이 있으면 그 전날까지)
    ====================================================================== */
 const STORE_KEY = 'planner.v1';
 const TAB_KEY = 'planner.tab';
@@ -446,7 +468,15 @@ function isDue(t, k){
   return daysBetween(t.start, k) % cyc < t.on;
 }
 /* 쉬는 기간: 그 날짜를 덮는 기간 중 이 할 일을 쉬게 하는 것 */
-const breaksOn = k => data.breaks.filter(b => b.start <= k && k <= b.end);
+function breakHits(b, k){
+  if(b.kind !== 'monthly') return b.start <= k && k <= b.end;
+  if(k < b.start || (b.until && k >= b.until)) return false;
+  const t = parseKey(k);
+  if(t.getDay() !== b.dow) return false;
+  const d = t.getDate(), last = new Date(t.getFullYear(), t.getMonth()+1, 0).getDate();
+  return b.weeks.includes(Math.ceil(d / 7)) || (b.weeks.includes(5) && d + 7 > last);
+}
+const breaksOn = k => data.breaks.filter(b => breakHits(b, k));
 const offBy = (t, k) => breaksOn(k).find(b => b.all || b.tasks.includes(t.id));
 const dueFor = k => data.tasks.filter(t => isDue(t, k));             // 원래 해당하는 할 일
 const tasksFor = k => dueFor(k).filter(t => !offBy(t, k));           // 쉬는 것 빼고 실제로 할 일
@@ -638,7 +668,10 @@ delBtn.onclick = () => {
    1-2. 쉬는 기간 (캘린더 탭 아래)
    ====================================================================== */
 let showPast = false;
+const WEEK_NAMES = ['', '첫째', '둘째', '셋째', '넷째', '마지막'];
+function monthlyText(b){ return `매월 ${[...b.weeks].sort().map(w => WEEK_NAMES[w]).join('·')} ${DOW[b.dow]}요일`; }
 function rangeText(b){
+  if(b.kind === 'monthly') return monthlyText(b) + (b.start > todayKey() ? ` · ${fmtMD(b.start)}부터` : '');
   if(b.start === b.end) return fmtMDW(b.start);
   return `${fmtMD(b.start)} ~ ${fmtMD(b.end)} · ${daysBetween(b.start, b.end) + 1}일`;
 }
@@ -649,19 +682,25 @@ function targetText(b){
 }
 function renderBreaks(){
   const tk = todayKey(), box = document.getElementById('breakList');
-  const cur = data.breaks.filter(b => b.end >= tk).sort((a,b) => a.start < b.start ? -1 : 1);
-  const past = data.breaks.filter(b => b.end < tk).sort((a,b) => a.start > b.start ? -1 : 1);
+  const monthly = data.breaks.filter(b => b.kind === 'monthly' && !b.until);
+  const dated = data.breaks.filter(b => b.kind !== 'monthly');
+  const cur = dated.filter(b => b.end >= tk).sort((a,b) => a.start < b.start ? -1 : 1);
+  const past = dated.filter(b => b.end < tk).sort((a,b) => a.start > b.start ? -1 : 1);
   box.innerHTML = '';
-  if(!cur.length) box.innerHTML = `<div class="list-empty">여행이나 연휴처럼 쉬는 날을 등록하면<br>그 기간은 캘린더에 빗금으로 표시되고 진행률에서 빠져요</div>`;
+  const title = t => box.insertAdjacentHTML('beforeend', `<div class="group-title">${t}</div>`);
+  if(!monthly.length && !cur.length && !past.length) box.innerHTML = `<div class="list-empty">여행이나 연휴처럼 쉬는 날을 등록하면<br>그 기간은 캘린더에 빗금으로 표시되고 진행률에서 빠져요</div>`;
   const item = (b, isPast) => {
     const el = document.createElement('button');
     el.className = 'task' + (isPast ? ' past' : '');
-    const now = !isPast && b.start <= tk ? '<span class="badge-now">쉬는 중</span>' : '';
+    const now = b.kind === 'monthly' ? (breakHits(b, tk) ? '<span class="badge-now">오늘 쉼</span>' : '')
+      : !isPast && b.start <= tk ? '<span class="badge-now">쉬는 중</span>' : '';
     el.innerHTML = `<span class="hatch"></span><div class="tx"><div class="nm">${escapeHtml(b.name)}${now}</div>
       <div class="rl">${rangeText(b)}<br>${escapeHtml(targetText(b))}</div></div><span class="ar">›</span>`;
     el.onclick = () => openBreakSheet(b);
     box.appendChild(el);
   };
+  if(monthly.length){ title('매월 반복'); monthly.forEach(b => item(b, false)); }
+  if(cur.length || past.length) title('날짜 지정');
   cur.forEach(b => item(b, false));
   if(past.length){
     if(showPast) past.forEach(b => item(b, true));
@@ -676,13 +715,38 @@ const bName = document.getElementById('bName'), bStart = document.getElementById
 let bform = null;
 function openBreakSheet(b){
   const tk = todayKey();
-  bform = b ? { ...b, tasks:[...b.tasks] } : { id:null, name:'', start:tk, end:tk, all:true, tasks:[] };
-  bName.value = bform.name; bStart.value = bform.start; bEnd.value = bform.end;
+  bform = b ? { kind:'date', weeks:[], dow:0, ...b, tasks:[...b.tasks], weeks:[...(b.weeks||[])] }
+            : { id:null, name:'', kind:'date', start:tk, end:tk, weeks:[], dow:0, all:true, tasks:[] };
+  if(bform.kind === 'monthly'){ bform.from = bform.start; bform.start = bform.end = tk; } else bform.from = tk;
+  bName.value = bform.name; bStart.value = bform.start; bEnd.value = bform.end; bFrom.value = bform.from;
   document.getElementById('bTitle').textContent = b ? '쉬는 기간 수정' : '쉬는 기간 추가';
   document.getElementById('bDel').hidden = !b;
   resetBDel(); paintBreak(); openSheet(breakSheet);
 }
+const bFrom = document.getElementById('bFrom');
+const bWeeks = document.getElementById('bWeeks'), bDow = document.getElementById('bDow');
+[1,2,3,4,5].forEach(w => {
+  const c = document.createElement('button'); c.textContent = WEEK_NAMES[w]; c.dataset.w = w;
+  c.onclick = () => { const s = new Set(bform.weeks); s.has(w) ? s.delete(w) : s.add(w); bform.weeks = [...s]; paintBreak(); };
+  bWeeks.appendChild(c);
+});
+DOW.forEach((n,i) => {
+  const c = document.createElement('button');
+  c.className = 'chip' + (i===0?' sun':'') + (i===6?' sat':''); c.textContent = n; c.dataset.d = i;
+  c.onclick = () => { bform.dow = i; paintBreak(); };
+  bDow.appendChild(c);
+});
+document.getElementById('bKindDate').onclick = () => { bform.kind = 'date'; paintBreak(); };
+document.getElementById('bKindMonth').onclick = () => { bform.kind = 'monthly'; paintBreak(); };
+bFrom.onchange = () => { if(bFrom.value) bform.from = bFrom.value; paintBreak(); };
 function paintBreak(){
+  const mon = bform.kind === 'monthly';
+  document.getElementById('bKindDate').classList.toggle('on', !mon);
+  document.getElementById('bKindMonth').classList.toggle('on', mon);
+  document.getElementById('bDateBox').hidden = mon;
+  document.getElementById('bMonthBox').hidden = !mon;
+  bWeeks.querySelectorAll('button').forEach(c => c.classList.toggle('on', bform.weeks.includes(Number(c.dataset.w))));
+  bDow.querySelectorAll('button').forEach(c => c.classList.toggle('on', Number(c.dataset.d) === bform.dow));
   document.getElementById('bAll').classList.toggle('on', bform.all);
   document.getElementById('bSome').classList.toggle('on', !bform.all);
   const pick = document.getElementById('bPick');
@@ -695,8 +759,18 @@ function paintBreak(){
     c.onclick = () => { const s = new Set(bform.tasks); s.has(t.id) ? s.delete(t.id) : s.add(t.id); bform.tasks = [...s]; paintBreak(); };
     pick.appendChild(c);
   });
+  const who = bform.all ? '모든 할 일을' : '고른 할 일을';
+  if(mon){
+    if(!bform.weeks.length){ document.getElementById('bPreview').innerHTML = '몇째 주를 하나 이상 골라주세요.'; return; }
+    const probe = { kind:'monthly', start:bform.from, weeks:bform.weeks, dow:bform.dow, until:null }, out = [];
+    let k = bform.from < todayKey() ? todayKey() : bform.from;
+    for(let i=0; i<400 && out.length<4; i++, k = addDays(k,1)) if(breakHits(probe, k)) out.push(k);
+    document.getElementById('bPreview').innerHTML = `<b>${monthlyText(probe)}</b>마다 ${who} 쉬어요<br>다음 쉬는 날 · `
+      + out.map(k => { const t=parseKey(k); return `${t.getMonth()+1}/${t.getDate()}(${DOW[t.getDay()]})`; }).join(', ');
+    return;
+  }
   let a = bform.start, z = bform.end; if(a > z) [a, z] = [z, a];
-  document.getElementById('bPreview').innerHTML = `<b>${rangeText({start:a, end:z})}</b> 동안 ${bform.all ? '모든 할 일을' : '고른 할 일을'} 쉬어요`;
+  document.getElementById('bPreview').innerHTML = `<b>${rangeText({start:a, end:z})}</b> 동안 ${who} 쉬어요`;
 }
 document.getElementById('bAll').onclick = () => { bform.all = true; paintBreak(); };
 document.getElementById('bSome').onclick = () => { bform.all = false; paintBreak(); };
@@ -705,10 +779,13 @@ bEnd.onchange = () => { if(bEnd.value) bform.end = bEnd.value; paintBreak(); };
 document.getElementById('addBreak').onclick = () => openBreakSheet(null);
 document.getElementById('bSave').onclick = () => {
   if(!bform.all && !bform.tasks.length){ toast('쉴 할 일을 골라주세요'); return; }
+  const mon = bform.kind === 'monthly';
+  if(mon && !bform.weeks.length){ toast('몇째 주를 하나 이상 골라주세요'); return; }
   let a = bform.start, z = bform.end; if(a > z) [a, z] = [z, a];
-  const b = { id: bform.id || ('b' + Date.now().toString(36) + Math.random().toString(36).slice(2,6)),
-    name: bName.value.trim() || '쉬는 날', start:a, end:z, all:bform.all, tasks: bform.all ? [] : [...bform.tasks],
-    updated: new Date().toISOString() };
+  const base = { id: bform.id || ('b' + Date.now().toString(36) + Math.random().toString(36).slice(2,6)),
+    name: bName.value.trim() || '쉬는 날', all:bform.all, tasks: bform.all ? [] : [...bform.tasks], updated: new Date().toISOString() };
+  const b = mon ? { ...base, kind:'monthly', start:bform.from, end:null, weeks:[...bform.weeks].sort(), dow:bform.dow, until:null }
+                : { ...base, kind:'date', start:a, end:z };
   const i = data.breaks.findIndex(x => x.id === b.id);
   if(i >= 0) data.breaks[i] = b; else data.breaks.push(b);
   saveAll(); renderAll(); closeSheet(); toast(i >= 0 ? '수정했어요' : '쉬는 기간을 추가했어요');
@@ -722,7 +799,11 @@ bDel.onclick = () => {
     clearTimeout(resetBDel._t); resetBDel._t = setTimeout(resetBDel, 3000);
     return;
   }
-  data.breaks = data.breaks.filter(x => x.id !== bform.id);
+  const i = data.breaks.findIndex(x => x.id === bform.id), tk = todayKey();
+  if(i >= 0 && data.breaks[i].kind === 'monthly' && data.breaks[i].start < tk){
+    // 매월 반복은 오늘부터 멈추고, 지난 날짜는 그대로 쉬는 날로 남겨요
+    data.breaks[i] = { ...data.breaks[i], until: tk, updated: new Date().toISOString() };
+  }else data.breaks = data.breaks.filter(x => x.id !== bform.id);
   saveAll(); renderAll(); closeSheet(); toast('삭제했어요');
 };
 
@@ -888,10 +969,17 @@ function cleanData(d){
     const o = {}; for(const id of Object.keys(v)) if(v[id] === true && ids.has(id)) o[id] = true;
     if(Object.keys(o).length) checks[k] = o;
   }
-  const breaks = (Array.isArray(d.breaks) ? d.breaks : []).filter(b => b && typeof b.id === 'string' && isK(b.start) && isK(b.end))
-    .map(b => ({ id:b.id, name: typeof b.name === 'string' && b.name.trim() ? b.name.slice(0,30) : '쉬는 날',
-      start: b.start <= b.end ? b.start : b.end, end: b.start <= b.end ? b.end : b.start, all: b.all !== false,
-      tasks: Array.isArray(b.tasks) ? b.tasks.filter(id => ids.has(id)) : [], updated: typeof b.updated === 'string' ? b.updated : '' }));
+  const breaks = (Array.isArray(d.breaks) ? d.breaks : []).filter(b => b && typeof b.id === 'string' && isK(b.start)).map(b => {
+    const base = { id:b.id, name: typeof b.name === 'string' && b.name.trim() ? b.name.slice(0,30) : '쉬는 날', all: b.all !== false,
+      tasks: Array.isArray(b.tasks) ? b.tasks.filter(id => ids.has(id)) : [], updated: typeof b.updated === 'string' ? b.updated : '' };
+    if(b.kind === 'monthly'){
+      const weeks = Array.isArray(b.weeks) ? b.weeks.filter(w => Number.isInteger(w) && w>=1 && w<=5) : [];
+      if(!weeks.length || !Number.isInteger(b.dow) || b.dow<0 || b.dow>6) return null;
+      return { ...base, kind:'monthly', start:b.start, end:null, weeks, dow:b.dow, until: isK(b.until) ? b.until : null };
+    }
+    if(!isK(b.end)) return null;
+    return { ...base, kind:'date', start: b.start <= b.end ? b.start : b.end, end: b.start <= b.end ? b.end : b.start };
+  }).filter(Boolean);
   return { tasks, checks, breaks };
 }
 document.getElementById('mergeBtn').onclick = () => {
