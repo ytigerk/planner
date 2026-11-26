@@ -117,6 +117,10 @@
   .task{display:flex;align-items:center;gap:.75rem;width:100%;text-align:left;border:0;background:var(--card);
     border-radius:1rem;padding:.85rem 1rem;box-shadow:0 1px 2px rgba(0,0,0,.04)}
   .task:active{background:var(--empty)}
+  /* 꾸욱 눌러 끌기 */
+  #taskList .task{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  .task.lifted{position:relative;z-index:3;background:var(--card)!important;box-shadow:0 10px 28px rgba(0,0,0,.18);transition:box-shadow .15s}
+  .sorting .task:not(.lifted){transition:transform .15s}
   .task .tx{flex:1;min-width:0}
   .task .nm{font-size:1rem;font-weight:700;overflow-wrap:anywhere}
   .task .rl{font-size:.8rem;color:var(--sub);margin-top:.2rem;line-height:1.4}
@@ -261,6 +265,7 @@
   <div class="view" id="viewTasks" hidden>
     <button class="add-btn" id="addBtn">+ 할 일 추가</button>
     <div class="list" id="taskList"></div>
+    <div class="hint" id="taskHint"></div>
   </div>
 
   <!-- 3. 하루 -->
@@ -571,6 +576,7 @@ function onSwipe(el, fn){
 function renderTasks(){
   const box = document.getElementById('taskList');
   const list = data.tasks.filter(t => !t.end);
+  document.getElementById('taskHint').textContent = list.length > 1 ? '꾸욱 눌러서 끌면 순서를 바꿀 수 있어요' : '';
   if(!list.length){
     box.innerHTML = `<div class="empty">아직 할 일이 없어요.<br>위의 <b>+ 할 일 추가</b>를 눌러 시작해 보세요.</div>`;
     return;
@@ -580,10 +586,71 @@ function renderTasks(){
     const b = document.createElement('button');
     b.className = 'task';
     b.innerHTML = `<div class="tx"><div class="nm">${escapeHtml(t.name)}</div><div class="rl">${ruleText(t)}</div></div><span class="ar">›</span>`;
-    b.onclick = () => openTaskSheet(t);
+    b.dataset.id = t.id;
+    b.onclick = () => { if(!justDragged) openTaskSheet(t); };
+    b.addEventListener('touchstart', e => pressBegin(b, e.touches[0].clientX, e.touches[0].clientY), {passive:true});
+    b.addEventListener('mousedown', e => { if(e.button === 0) pressBegin(b, e.clientX, e.clientY); });
+    b.addEventListener('contextmenu', e => e.preventDefault());
     box.appendChild(b);
   });
 }
+
+/* ---------- 꾸욱 눌러서 끌어 순서 바꾸기 ----------
+   0.4초 누르고 있으면 칸이 떠오르고, 그대로 위아래로 끌어서 놓으면 그 자리로 옮겨져요.
+   그 전에 손가락이 움직이면 평소처럼 스크롤/탭 이동으로 처리해요. */
+let drag = null, dragBusy = false, justDragged = false, pressTimer = null, pressStart = null;
+function pressBegin(el, x, y){
+  clearTimeout(pressTimer);
+  pressStart = { x, y };
+  pressTimer = setTimeout(() => { if(pressStart) dragStart(el, pressStart.y); }, 400);
+}
+function pressCancel(){ clearTimeout(pressTimer); pressStart = null; }
+function dragStart(el, y){
+  const box = el.parentNode;
+  drag = { el, box, y, startPageY: y + scrollY, startTop: el.offsetTop, order: [...box.children].map(x => x.dataset.id).join() };
+  dragBusy = true;
+  el.classList.add('lifted'); box.classList.add('sorting');
+  try{ navigator.vibrate && navigator.vibrate(15); }catch(e){}
+  requestAnimationFrame(dragLoop);
+}
+function dragLoop(){
+  if(!drag) return;
+  const { el, box, y } = drag, edge = 70;
+  if(y < edge) scrollBy(0, -Math.ceil((edge - y) / 5));                       // 위아래 끝에서는 자동 스크롤
+  else if(y > innerHeight - edge) scrollBy(0, Math.ceil((y - innerHeight + edge) / 5));
+  let before = null;
+  for(const it of box.children){
+    if(it === el) continue;
+    const r = it.getBoundingClientRect();
+    if(y < r.top + r.height / 2){ before = it; break; }
+  }
+  if(before){ if(el.nextElementSibling !== before) box.insertBefore(el, before); }
+  else if(box.lastElementChild !== el) box.appendChild(el);
+  el.style.transform = `translateY(${y + scrollY - drag.startPageY - (el.offsetTop - drag.startTop)}px) scale(1.02)`;
+  requestAnimationFrame(dragLoop);
+}
+function dragEnd(){
+  const { el, box, order } = drag;
+  drag = null;
+  el.classList.remove('lifted'); box.classList.remove('sorting'); el.style.transform = '';
+  const ids = [...box.children].map(x => x.dataset.id);
+  if(ids.join() !== order){
+    data.tasks = [...ids.map(id => data.tasks.find(t => t.id === id)), ...data.tasks.filter(t => !ids.includes(t.id))];
+    saveAll(); toast('순서를 바꿨어요');
+  }
+  justDragged = true;
+  setTimeout(() => { justDragged = false; dragBusy = false; }, 350);
+}
+document.addEventListener('touchmove', e => {
+  const t = e.touches[0];
+  if(drag){ e.preventDefault(); drag.y = t.clientY; }
+  else if(pressStart && Math.hypot(t.clientX - pressStart.x, t.clientY - pressStart.y) > 8) pressCancel();
+}, { passive:false });
+document.addEventListener('mousemove', e => {
+  if(drag){ e.preventDefault(); drag.y = e.clientY; }
+  else if(pressStart && Math.hypot(e.clientX - pressStart.x, e.clientY - pressStart.y) > 8) pressCancel();
+});
+['touchend','touchcancel','mouseup'].forEach(n => document.addEventListener(n, () => { pressCancel(); if(drag) dragEnd(); }));
 
 /* ---------- 할 일 추가/수정 창 ---------- */
 const taskSheet = document.getElementById('taskSheet'), overlay = document.getElementById('overlay');
@@ -902,7 +969,7 @@ function renderAll(){ showTab(curTab); }
 /* 화면 어디서든 좌우로 밀면 옆 탭으로 (아래 창이 열려 있을 땐 안 함) */
 const TAB_ORDER = ['cal','tasks','day','set'];
 onSwipe(document.body, dir => {
-  if(overlay.classList.contains('on')) return;
+  if(overlay.classList.contains('on') || dragBusy) return;
   const next = TAB_ORDER[TAB_ORDER.indexOf(curTab) + dir];
   if(!next) return;
   if(next === 'day') dayKey = todayKey();   // 탭 버튼과 똑같이 오늘로 열기
